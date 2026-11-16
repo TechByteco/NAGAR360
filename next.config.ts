@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  /* Next.js standard config for Vercel, Netlify, and Node servers */
 };
 
 export default nextConfig;
