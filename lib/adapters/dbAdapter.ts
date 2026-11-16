@@ -6,8 +6,11 @@ import {
   AuthorityMetrics,
   ComplaintCategory,
   Severity,
+  FloodRiskZone,
+  DepartmentSLA,
+  WardCouncillor,
 } from '../types';
-import { INITIAL_COMPLAINTS, INITIAL_EVENTS } from '../store';
+import { INITIAL_COMPLAINTS, INITIAL_EVENTS, FLOOD_RISK_ZONES, DEPARTMENT_SLAS, WARD_COUNCILLORS } from '../store';
 import { calculateDistance, generateTicketId } from '../utils';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 
@@ -399,15 +402,159 @@ export function toggleJoinEvent(eventId: string, userId: string): { joined: bool
   return { joined: !exists, count: updatedUserIds.length };
 }
 
+export function voteResolutionVerification(
+  complaintId: string,
+  userId: string,
+  isFixed: boolean
+): Complaint | null {
+  const complaints = getStoredComplaints();
+  const idx = complaints.findIndex((c) => c.id === complaintId);
+  if (idx === -1) return null;
+
+  const complaint = complaints[idx];
+  const currentVerification = complaint.resolutionVerification || {
+    confirmedFixedCount: 0,
+    stillBrokenCount: 0,
+    confirmedUserIds: [],
+    disputedUserIds: [],
+    isCitizenVerified: false,
+  };
+
+  const confirmed = [...(currentVerification.confirmedUserIds || [])];
+  const disputed = [...(currentVerification.disputedUserIds || [])];
+
+  const alreadyConfirmed = confirmed.includes(userId);
+  const alreadyDisputed = disputed.includes(userId);
+
+  if (isFixed) {
+    if (alreadyConfirmed) {
+      const uIdx = confirmed.indexOf(userId);
+      confirmed.splice(uIdx, 1);
+    } else {
+      confirmed.push(userId);
+      if (alreadyDisputed) {
+        const dIdx = disputed.indexOf(userId);
+        disputed.splice(dIdx, 1);
+      }
+    }
+  } else {
+    if (alreadyDisputed) {
+      const dIdx = disputed.indexOf(userId);
+      disputed.splice(dIdx, 1);
+    } else {
+      disputed.push(userId);
+      if (alreadyConfirmed) {
+        const cIdx = confirmed.indexOf(userId);
+        confirmed.splice(cIdx, 1);
+      }
+    }
+  }
+
+  const updatedVerification = {
+    confirmedFixedCount: confirmed.length,
+    stillBrokenCount: disputed.length,
+    confirmedUserIds: confirmed,
+    disputedUserIds: disputed,
+    isCitizenVerified: confirmed.length >= 3 && confirmed.length > disputed.length * 2,
+  };
+
+  complaints[idx] = {
+    ...complaint,
+    resolutionVerification: updatedVerification,
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveComplaints(complaints);
+  return complaints[idx];
+}
+
+export function signPetition(complaintId: string, userId: string): { signed: boolean; count: number } {
+  const complaints = getStoredComplaints();
+  const idx = complaints.findIndex((c) => c.id === complaintId);
+  if (idx === -1) return { signed: false, count: 0 };
+
+  const complaint = complaints[idx];
+  const supportedUserIds = complaint.supportedUserIds || [];
+  const alreadySigned = supportedUserIds.includes(userId);
+
+  const updatedUserIds = alreadySigned
+    ? supportedUserIds.filter((id) => id !== userId)
+    : [...supportedUserIds, userId];
+
+  const currentCount = complaint.petitionCount || complaint.supportsCount || 0;
+  const newCount = alreadySigned ? Math.max(0, currentCount - 1) : currentCount + 1;
+
+  complaints[idx] = {
+    ...complaint,
+    supportedUserIds: updatedUserIds,
+    petitionCount: newCount,
+    supportsCount: updatedUserIds.length,
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveComplaints(complaints);
+  return { signed: !alreadySigned, count: newCount };
+}
+
+export function getFloodZones(city?: string): FloodRiskZone[] {
+  if (!city || city === 'All' || city === 'all') return FLOOD_RISK_ZONES;
+  return FLOOD_RISK_ZONES.filter((z) => z.city.toLowerCase() === city.toLowerCase());
+}
+
+export function getDepartmentSLAs(): DepartmentSLA[] {
+  return DEPARTMENT_SLAS;
+}
+
+export function getWardCouncillors(city?: string): WardCouncillor[] {
+  if (!city || city === 'All' || city === 'all') return WARD_COUNCILLORS;
+  return WARD_COUNCILLORS.filter((wc) => wc.city.toLowerCase() === city.toLowerCase());
+}
+
+export function checkSLAStatus(complaint: Complaint): {
+  deadlineHours: number;
+  isOverdue: boolean;
+  hoursRemaining: number;
+} {
+  const slaDef = DEPARTMENT_SLAS.find((s) => s.category === complaint.category);
+  const deadlineHours = complaint.slaDeadlineHours || slaDef?.slaHours || 48;
+  const createdDate = new Date(complaint.createdAt).getTime();
+  const now = Date.now();
+  const elapsedHours = (now - createdDate) / (1000 * 60 * 60);
+  const hoursRemaining = Math.max(0, Math.round(deadlineHours - elapsedHours));
+  const isOverdue = complaint.status !== 'resolved' && complaint.status !== 'rejected' && elapsedHours > deadlineHours;
+
+  return {
+    deadlineHours,
+    isOverdue,
+    hoursRemaining,
+  };
+}
+
 export function getAuthorityMetrics(): AuthorityMetrics {
   const complaints = getStoredComplaints();
+  let overdueSlaCount = 0;
+  let verifiedResolvedCount = 0;
+
+  complaints.forEach((c) => {
+    const sla = checkSLAStatus(c);
+    if (sla.isOverdue) overdueSlaCount++;
+    if (c.status === 'resolved' && c.resolutionVerification?.isCitizenVerified) {
+      verifiedResolvedCount++;
+    }
+  });
+
+  const resolved = complaints.filter((c) => c.status === 'resolved').length;
+  const citizenSatisfactionPercent = resolved > 0 ? Math.round((verifiedResolvedCount / resolved) * 100) : 92;
+
   const metrics: AuthorityMetrics = {
     totalComplaints: complaints.length,
     openComplaints: complaints.filter((c) => c.status === 'submitted' || c.status === 'under_review').length,
     inProgressComplaints: complaints.filter((c) => c.status === 'assigned' || c.status === 'in_progress').length,
-    resolvedComplaints: complaints.filter((c) => c.status === 'resolved').length,
+    resolvedComplaints: resolved,
     criticalComplaints: complaints.filter((c) => c.severity === 'critical' && c.status !== 'resolved').length,
     avgResolutionDays: 1.8,
+    overdueSlaCount,
+    citizenSatisfactionPercent: Math.max(75, citizenSatisfactionPercent),
     byDepartment: {},
     byWard: {},
   };

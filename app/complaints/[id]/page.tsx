@@ -2,14 +2,23 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Complaint } from '../../../lib/types';
-import { getComplaintById, getStoredComplaints, toggleSupport } from '../../../lib/adapters/dbAdapter';
+import { Complaint, WardCouncillor } from '../../../lib/types';
+import {
+  getComplaintById,
+  getStoredComplaints,
+  toggleSupport,
+  checkSLAStatus,
+  getWardCouncillors,
+} from '../../../lib/adapters/dbAdapter';
 import { getCurrentUser } from '../../../lib/adapters/authAdapter';
 import { ComplaintStatusBadge } from '../../../components/ui/ComplaintStatusBadge';
 import { SeverityBadge } from '../../../components/ui/SeverityBadge';
 import { StatusTimeline } from '../../../components/complaints/StatusTimeline';
 import { CommentSection } from '../../../components/complaints/CommentSection';
 import { EditComplaintModal } from '../../../components/complaints/EditComplaintModal';
+import BeforeAfterSlider from '../../../components/complaints/BeforeAfterSlider';
+import ResolutionPoll from '../../../components/complaints/ResolutionPoll';
+import PetitionModal from '../../../components/complaints/PetitionModal';
 import { formatDate } from '../../../lib/utils';
 import Link from 'next/link';
 import {
@@ -22,6 +31,15 @@ import {
   AlertCircle,
   Printer,
   Edit3,
+  Clock,
+  AlertTriangle,
+  FileText,
+  User,
+  Phone,
+  Mail,
+  Building,
+  Sparkles,
+  Users,
 } from 'lucide-react';
 
 export default function ComplaintDetailPage() {
@@ -33,6 +51,7 @@ export default function ComplaintDetailPage() {
   const [allComplaints, setAllComplaints] = useState<Complaint[]>([]);
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isPetitionOpen, setIsPetitionOpen] = useState(false);
   const currentUser = getCurrentUser();
 
   const loadData = () => {
@@ -69,6 +88,9 @@ export default function ComplaintDetailPage() {
   const userId = currentUser?.id || 'guest';
   const isSupported = (complaint.supportedUserIds || []).includes(userId);
   const canEdit = currentUser?.id === complaint.userId || currentUser?.role === 'official';
+  const sla = checkSLAStatus(complaint);
+  const councillors = getWardCouncillors(complaint.city);
+  const councillor = councillors.find((c) => c.wardNumber.toLowerCase() === complaint.ward?.toLowerCase()) || councillors[0];
 
   const handleSupport = () => {
     toggleSupport(complaint.id, userId);
@@ -101,7 +123,7 @@ export default function ComplaintDetailPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Top Nav Back & Ticket Bar */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <Link
           href="/feed"
           className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600 hover:text-gray-900 bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs"
@@ -110,6 +132,14 @@ export default function ComplaintDetailPage() {
         </Link>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsPetitionOpen(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-saffron-orange bg-orange-50 hover:bg-orange-100 px-3.5 py-1.5 rounded-xl border border-orange-200 transition"
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Petition ({complaint.petitionCount || complaint.supportsCount || 1})</span>
+          </button>
+
           {canEdit && (
             <button
               onClick={() => setIsEditing(true)}
@@ -126,17 +156,49 @@ export default function ComplaintDetailPage() {
             title="Print Summary"
           >
             <Printer className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Print Ticket</span>
+            <span className="hidden sm:inline">Print Work Order</span>
           </button>
 
           <button
             onClick={handleShare}
-            className="inline-flex items-center gap-1 text-xs font-bold text-[#F28C28] bg-orange-50 px-3 py-1.5 rounded-xl border border-orange-200"
+            className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 bg-white px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-slate-50 transition"
           >
             <Share2 className="w-3.5 h-3.5" />
             <span>{copied ? 'Copied Link!' : 'Share'}</span>
           </button>
         </div>
+      </div>
+
+      {/* SLA DEADLINE ALERT BAR */}
+      <div
+        className={`p-4 rounded-2xl border flex items-center justify-between flex-wrap gap-3 ${
+          sla.isOverdue
+            ? 'bg-rose-50 border-rose-200 text-rose-900'
+            : 'bg-blue-50/80 border-blue-200 text-blue-900'
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          {sla.isOverdue ? (
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+          ) : (
+            <Clock className="w-5 h-5 text-[#1261A0] shrink-0" />
+          )}
+          <div>
+            <div className="font-bold text-xs md:text-sm">
+              {sla.isOverdue
+                ? 'SLA Target Breached — Escalated to Zonal Officer'
+                : `Citizen Charter SLA: ${sla.deadlineHours} Hours Target`}
+            </div>
+            <div className="text-[11px] opacity-80">
+              {sla.isOverdue
+                ? 'Issue has exceeded official municipal turnaround time. Automated reminder triggered.'
+                : `Resolution window remaining: ~${sla.hoursRemaining} hours`}
+            </div>
+          </div>
+        </div>
+        <span className="text-xs font-bold px-3 py-1 bg-white rounded-full border border-current shadow-2xs">
+          {sla.isOverdue ? 'Overdue' : 'On Track'}
+        </span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -167,8 +229,13 @@ export default function ComplaintDetailPage() {
               </div>
             </div>
 
-            {/* Media Image */}
-            {complaint.imageUrl && (
+            {/* Media Image or Before/After Slider */}
+            {complaint.resolutionImageUrl && complaint.imageUrl ? (
+              <BeforeAfterSlider
+                beforeImageUrl={complaint.imageUrl}
+                afterImageUrl={complaint.resolutionImageUrl}
+              />
+            ) : complaint.imageUrl ? (
               <div className="rounded-2xl overflow-hidden aspect-video bg-gray-100 border border-gray-200 relative">
                 <img
                   src={complaint.imageUrl}
@@ -176,6 +243,16 @@ export default function ComplaintDetailPage() {
                   className="w-full h-full object-cover"
                 />
               </div>
+            ) : null}
+
+            {/* CITIZEN RESOLUTION VERIFICATION POLL */}
+            {complaint.status === 'resolved' && (
+              <ResolutionPoll
+                complaintId={complaint.id}
+                currentUserId={userId}
+                verification={complaint.resolutionVerification}
+                onVoteChange={() => loadData()}
+              />
             )}
 
             {/* Description */}
@@ -197,6 +274,35 @@ export default function ComplaintDetailPage() {
                 <SeverityBadge severity={complaint.severity} />
               </div>
             </div>
+
+            {/* AI TRIAGE ANALYTICS */}
+            {complaint.aiAnalysis && (
+              <div className="p-4 bg-gradient-to-br from-indigo-50/70 to-blue-50/70 border border-indigo-200/70 rounded-2xl">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950 mb-2">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span>AI Triage & Material Assessment</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                  <div className="bg-white/80 p-2 rounded-lg border border-indigo-100">
+                    <span className="text-[10px] text-slate-500 block">Hazard Score</span>
+                    <span className="font-bold text-rose-600">{complaint.aiAnalysis.hazardScore || 8} / 10</span>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-lg border border-indigo-100">
+                    <span className="text-[10px] text-slate-500 block">Est. Repair Budget</span>
+                    <span className="font-bold text-slate-800">₹{(complaint.aiAnalysis.estimatedCostInr || 25000).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-lg border border-indigo-100 col-span-2 sm:col-span-1">
+                    <span className="text-[10px] text-slate-500 block">AI Confidence</span>
+                    <span className="font-bold text-emerald-600">{(complaint.aiAnalysis.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                </div>
+                {complaint.aiAnalysis.materialsNeeded && (
+                  <div className="mt-2.5 text-[11px] text-indigo-900">
+                    <strong>Recommended Materials:</strong> {complaint.aiAnalysis.materialsNeeded.join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Support Action Button */}
             <div className="pt-2 flex items-center justify-between border-t border-gray-100">
@@ -233,6 +339,34 @@ export default function ComplaintDetailPage() {
 
         {/* Right Column: Status Lifecycle Timeline & Official Updates */}
         <div className="lg:col-span-5 space-y-6">
+          {/* ELECTED WARD COUNCILLOR DIRECT CONTACT */}
+          {councillor && (
+            <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-5 space-y-3">
+              <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
+                <Building className="w-4 h-4 text-[#1261A0]" />
+                <h4 className="font-bold text-gray-900 text-xs uppercase tracking-wider">
+                  Elected Ward Councillor
+                </h4>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="font-bold text-slate-900 text-sm">{councillor.councillorName}</div>
+                <div className="text-[11px] text-slate-500">{councillor.wardName} ({councillor.wardNumber})</div>
+                <div className="pt-2 flex flex-col gap-1.5 text-[11px]">
+                  <a href={`tel:${councillor.phone}`} className="flex items-center gap-2 text-slate-700 hover:text-nagar-blue">
+                    <Phone className="w-3.5 h-3.5 text-emerald-600" /> {councillor.phone}
+                  </a>
+                  <a href={`mailto:${councillor.email}`} className="flex items-center gap-2 text-slate-700 hover:text-nagar-blue">
+                    <Mail className="w-3.5 h-3.5 text-blue-600" /> {councillor.email}
+                  </a>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    📍 {councillor.officeAddress}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* LIFECYCLE TIMELINE */}
           <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
             <h3 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2 flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-[#1261A0]" />
@@ -243,6 +377,11 @@ export default function ComplaintDetailPage() {
               <div className="p-3 bg-blue-50/80 rounded-2xl border border-blue-200 text-xs text-blue-900">
                 <span className="text-[10px] uppercase font-bold text-blue-700 block mb-0.5">Assigned Department</span>
                 <span className="font-bold block">{complaint.assignedDepartment}</span>
+                {complaint.contractorName && (
+                  <span className="text-[11px] text-slate-600 block mt-1">
+                    Contractor: <strong>{complaint.contractorName}</strong>
+                  </span>
+                )}
               </div>
             )}
 
@@ -285,6 +424,16 @@ export default function ComplaintDetailPage() {
           complaint={complaint}
           onClose={() => setIsEditing(false)}
           onSuccess={loadData}
+        />
+      )}
+
+      {isPetitionOpen && (
+        <PetitionModal
+          complaint={complaint}
+          currentUserId={userId}
+          isOpen={isPetitionOpen}
+          onClose={() => setIsPetitionOpen(false)}
+          onSigned={() => loadData()}
         />
       )}
     </div>

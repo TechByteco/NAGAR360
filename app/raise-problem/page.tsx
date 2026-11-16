@@ -9,6 +9,7 @@ import { analyseCivicImage } from '../../lib/adapters/aiAdapter';
 import { createComplaint, findNearbyDuplicates } from '../../lib/adapters/dbAdapter';
 import { getCurrentUser } from '../../lib/adapters/authAdapter';
 import { reverseGeocodeLocation } from '../../lib/adapters/geocodeAdapter';
+import VoiceComplaintModal from '../../components/complaints/VoiceComplaintModal';
 import { AIAnalysisResult, Complaint, ComplaintCategory, Severity } from '../../lib/types';
 import { getDepartmentForCategory } from '../../lib/utils';
 import {
@@ -22,6 +23,7 @@ import {
   ShieldCheck,
   EyeOff,
   Loader2,
+  Mic,
 } from 'lucide-react';
 
 export default function RaiseProblemPage() {
@@ -32,6 +34,7 @@ export default function RaiseProblemPage() {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isAnalyzingAI, setIsAnalyzingAI] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResult | null>(null);
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
 
   // Form details
   const [title, setTitle] = useState('');
@@ -191,11 +194,22 @@ export default function RaiseProblemPage() {
       {/* Step 1: Upload Evidence */}
       {step === 1 && (
         <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm space-y-5">
-          <div className="space-y-1">
-            <h2 className="text-base font-bold text-gray-900">Step 1: Upload Photo Evidence</h2>
-            <p className="text-xs text-gray-500">
-              Clear photos enable instant AI vision detection and faster municipal dispatch.
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-base font-bold text-gray-900">Step 1: Upload Photo Evidence</h2>
+              <p className="text-xs text-gray-500">
+                Clear photos enable instant AI vision detection and faster municipal dispatch.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsVoiceModalOpen(true)}
+              className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs px-3.5 py-2 rounded-2xl flex items-center gap-2 shadow-2xs transition"
+            >
+              <Mic className="w-4 h-4 text-saffron-orange animate-pulse" />
+              <span>Voice Report (குரல் பதிவு)</span>
+            </button>
           </div>
 
           <ImageUploader
@@ -410,6 +424,19 @@ export default function RaiseProblemPage() {
             </button>
           </div>
         </form>
+      )}
+
+      {isVoiceModalOpen && (
+        <VoiceComplaintModal
+          isOpen={isVoiceModalOpen}
+          onClose={() => setIsVoiceModalOpen(false)}
+          onTranscriptComplete={({ title: vTitle, description: vDesc, category: vCat }) => {
+            setTitle(vTitle);
+            setDescription(vDesc);
+            setCategory(vCat as ComplaintCategory);
+            setStep(3); // Jump to location step
+          }}
+        />
       )}
     </div>
   );

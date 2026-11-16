@@ -29,7 +29,19 @@ export type ComplaintCategory =
   | 'Illegal Dumping'
   | 'Public Toilet Issue'
   | 'Stray Animal Concern'
+  | 'Air Quality'
+  | 'Hazardous Wire'
   | 'Other';
+
+export interface CivicBadge {
+  id: string;
+  name: string;
+  nameTa: string;
+  description: string;
+  icon: string;
+  earnedAt?: string;
+  category: 'reporting' | 'resolution' | 'community' | 'eco';
+}
 
 export interface User {
   id: string;
@@ -42,18 +54,26 @@ export interface User {
   preferredLanguage: Language;
   civicPoints: number;
   avatarUrl?: string;
+  badges?: CivicBadge[];
+  karmaLevel?: string;
+  verifiedReportsCount?: number;
+  resolutionsConfirmedCount?: number;
   createdAt: string;
 }
 
 export interface AIAnalysisResult {
   category: ComplaintCategory;
-  subcategory: string;
+  subcategory?: string;
   confidence: number; // 0 to 1
   severity: Severity;
-  explanation: string;
+  explanation?: string;
+  summary?: string;
   suggestedDepartment: string;
   isImageClear: boolean;
   isLikelyCivicIssue: boolean;
+  estimatedCostInr?: number;
+  materialsNeeded?: string[];
+  hazardScore?: number; // 1 to 10
   possibleDuplicateCategory?: string;
   isDemoFallback: boolean;
 }
@@ -66,19 +86,38 @@ export interface StatusHistory {
   updatedByName: string;
   createdAt: string;
   resolutionImageUrl?: string;
+  estimatedResolutionDate?: string;
 }
 
 export interface Comment {
   id: string;
-  complaintId: string;
+  complaintId?: string;
   userId: string;
   userName: string;
   userRole?: Role;
-  isOfficial: boolean;
-  body: string;
-  helpfulCount: number;
-  helpfulUserIds: string[];
+  isOfficial?: boolean;
+  officialDesignation?: string;
+  body?: string;
+  text?: string;
+  helpfulCount?: number;
+  helpfulUserIds?: string[];
   createdAt: string;
+}
+
+export interface ResolutionVerification {
+  confirmedFixedCount: number;
+  stillBrokenCount: number;
+  confirmedUserIds: string[];
+  disputedUserIds: string[];
+  isCitizenVerified: boolean;
+}
+
+export interface DepartmentSLA {
+  category: ComplaintCategory;
+  department: string;
+  slaHours: number;
+  emergencyContact: string;
+  helpline: string;
 }
 
 export interface Complaint {
@@ -103,6 +142,7 @@ export interface Complaint {
   assignedDepartment?: string;
   assignedOfficialId?: string;
   assignedOfficialName?: string;
+  contractorName?: string;
   isAnonymous: boolean;
   aiAnalysis?: AIAnalysisResult;
   supportsCount: number;
@@ -110,6 +150,11 @@ export interface Complaint {
   duplicateOfId?: string;
   resolutionNote?: string;
   resolutionImageUrl?: string;
+  resolutionVerification?: ResolutionVerification;
+  slaDeadlineHours?: number;
+  isSlaOverdue?: boolean;
+  voiceNoteUrl?: string;
+  petitionCount?: number;
   statusHistory: StatusHistory[];
   comments: Comment[];
   createdAt: string;
@@ -130,6 +175,7 @@ export interface CivicEvent {
   attendeesCount: number;
   joinedUserIds: string[];
   imageUrl: string;
+  category?: 'cleanup' | 'tree_planting' | 'drainage_inspection' | 'pothole_patrol';
 }
 
 export interface GeocodeResult {
@@ -149,6 +195,32 @@ export interface AuthorityMetrics {
   resolvedComplaints: number;
   criticalComplaints: number;
   avgResolutionDays: number;
+  overdueSlaCount: number;
+  citizenSatisfactionPercent: number;
   byDepartment: Record<string, number>;
   byWard: Record<string, number>;
+}
+
+export interface FloodRiskZone {
+  id: string;
+  name: string;
+  city: string;
+  riskLevel: 'critical' | 'high' | 'moderate';
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  monsoonVulnerabilityNotes: string;
+  inundationHistory: string;
+}
+
+export interface WardCouncillor {
+  id: string;
+  wardNumber: string;
+  wardName: string;
+  city: string;
+  councillorName: string;
+  party: string;
+  phone: string;
+  email: string;
+  officeAddress: string;
 }

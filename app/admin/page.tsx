@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getStoredComplaints, getAuthorityMetrics } from '../../lib/adapters/dbAdapter';
+import { getStoredComplaints, getAuthorityMetrics, updateComplaintStatus } from '../../lib/adapters/dbAdapter';
 import { getCurrentUser, getOfficialCredentials, signOutUser } from '../../lib/adapters/authAdapter';
-import { Complaint, AuthorityMetrics } from '../../lib/types';
+import { Complaint, AuthorityMetrics, ComplaintStatus } from '../../lib/types';
 import { AuthorityTable } from '../../components/admin/AuthorityTable';
 import { ChangeCredentialsModal } from '../../components/admin/ChangeCredentialsModal';
+import KanbanBoard from '../../components/admin/KanbanBoard';
 import {
   ShieldCheck,
   Filter,
@@ -14,6 +15,11 @@ import {
   Key,
   LogOut,
   Lock,
+  LayoutGrid,
+  List,
+  AlertTriangle,
+  Download,
+  Smile,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -25,6 +31,7 @@ export default function AdminDashboardPage() {
   const [selectedDept, setSelectedDept] = useState<string>('all');
   const [selectedWard, setSelectedWard] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('kanban');
   const [showCredsModal, setShowCredsModal] = useState(false);
 
   const loadData = () => {
@@ -77,6 +84,39 @@ export default function AdminDashboardPage() {
     router.push('/authority/login');
   };
 
+  const handleKanbanStatusChange = (complaintId: string, newStatus: ComplaintStatus) => {
+    updateComplaintStatus(
+      complaintId,
+      newStatus,
+      `Status updated via Executive Kanban Board by ${user.fullName}.`,
+      user.fullName
+    );
+    loadData();
+  };
+
+  const handleExportCSV = () => {
+    const headers = ['Ticket ID', 'Title', 'Category', 'Severity', 'Status', 'Ward', 'City', 'Created At'];
+    const rows = complaints.map((c) => [
+      c.ticketId,
+      `"${c.title.replace(/"/g, '""')}"`,
+      c.category,
+      c.severity,
+      c.status,
+      c.ward,
+      c.city,
+      c.createdAt,
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `nagar360-authority-report-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const filtered = complaints.filter((c) => {
     if (selectedDept !== 'all' && c.assignedDepartment !== selectedDept) return false;
     if (selectedWard !== 'all' && c.ward !== selectedWard) return false;
@@ -91,11 +131,11 @@ export default function AdminDashboardPage() {
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 text-xs font-bold border border-amber-400/30">
             <ShieldCheck className="w-4 h-4 text-amber-400" />
-            <span>Greater Chennai Corporation (GCC) Executive Portal</span>
+            <span>Tamil Nadu Municipal Administration Executive Portal</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black">Authority Operations Dashboard</h1>
+          <h1 className="text-2xl sm:text-3xl font-black">Authority Operations & Triage Dashboard</h1>
           <p className="text-xs text-blue-200">
-            Triage, assign, and update civic issue complaints across Chennai & TN zones in real time.
+            Triage, assign work orders, and audit civic resolutions across all 38 Tamil Nadu districts in real time.
           </p>
         </div>
 
@@ -124,7 +164,7 @@ export default function AdminDashboardPage() {
 
       {/* KPI Cards Grid */}
       {metrics && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
           <div className="bg-white p-4.5 rounded-2xl border border-gray-200 shadow-xs space-y-1">
             <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Complaints</span>
             <span className="text-2xl font-black text-gray-900 block">{metrics.totalComplaints}</span>
@@ -145,18 +185,46 @@ export default function AdminDashboardPage() {
             <span className="text-2xl font-black text-emerald-600 block">{metrics.resolvedComplaints}</span>
           </div>
 
-          <div className="bg-white p-4.5 rounded-2xl border border-red-200 shadow-xs space-y-1">
-            <span className="text-xs text-red-700 font-bold uppercase tracking-wider block">Critical Risk</span>
-            <span className="text-2xl font-black text-red-600 block">{metrics.criticalComplaints}</span>
+          <div className="bg-white p-4.5 rounded-2xl border border-rose-200 shadow-xs space-y-1">
+            <span className="text-xs text-rose-700 font-bold uppercase tracking-wider flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3 text-rose-500" /> Overdue SLA
+            </span>
+            <span className="text-2xl font-black text-rose-600 block">{metrics.overdueSlaCount}</span>
+          </div>
+
+          <div className="bg-white p-4.5 rounded-2xl border border-teal-200 shadow-xs space-y-1">
+            <span className="text-xs text-teal-700 font-bold uppercase tracking-wider flex items-center gap-1">
+              <Smile className="w-3 h-3 text-teal-600" /> Citizen Trust
+            </span>
+            <span className="text-2xl font-black text-teal-700 block">{metrics.citizenSatisfactionPercent}%</span>
           </div>
         </div>
       )}
 
-      {/* Triage Queue Filter Controls */}
+      {/* Triage Queue Filter Controls & View Switcher */}
       <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex flex-wrap items-center justify-between gap-4 text-xs">
-        <div className="flex items-center gap-2 font-bold text-gray-800">
-          <Filter className="w-4 h-4 text-[#1261A0]" />
-          <span>Queue Filters:</span>
+        {/* VIEW MODE TOGGLE */}
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+          <button
+            type="button"
+            onClick={() => setViewMode('kanban')}
+            className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition ${
+              viewMode === 'kanban' ? 'bg-white text-nagar-blue shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span>Executive Kanban</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('table')}
+            className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition ${
+              viewMode === 'table' ? 'bg-white text-nagar-blue shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <List className="w-3.5 h-3.5" />
+            <span>Table View</span>
+          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -187,17 +255,13 @@ export default function AdminDashboardPage() {
             <option value="Ward 45">Ward 45 (Madurai)</option>
           </select>
 
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-1.5 bg-white border border-gray-300 rounded-xl font-semibold text-gray-800"
+          <button
+            onClick={handleExportCSV}
+            className="px-3 py-1.5 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-50 rounded-xl font-bold flex items-center gap-1.5 shadow-2xs transition"
           >
-            <option value="all">All Statuses</option>
-            <option value="submitted">Submitted</option>
-            <option value="assigned">Assigned</option>
-            <option value="in_progress">In Progress</option>
-            <option value="resolved">Resolved</option>
-          </select>
+            <Download className="w-3.5 h-3.5" />
+            <span>Export CSV</span>
+          </button>
 
           <button
             onClick={loadData}
@@ -209,8 +273,12 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Main Authority Table Component */}
-      <AuthorityTable complaints={filtered} onUpdate={loadData} />
+      {/* RENDER TABLE OR KANBAN */}
+      {viewMode === 'kanban' ? (
+        <KanbanBoard complaints={filtered} onStatusChange={handleKanbanStatusChange} />
+      ) : (
+        <AuthorityTable complaints={filtered} onUpdate={loadData} />
+      )}
 
       {/* Credentials Change Modal */}
       {showCredsModal && (

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { NagarLogo } from '../ui/NagarLogo';
 import { LanguageSelector } from '../ui/LanguageSelector';
+import EmergencyAlertBanner from '../ui/EmergencyAlertBanner';
 import { Language, User } from '../../lib/types';
 import { getTranslation } from '../../lib/translations';
 import { TAMIL_NADU_DISTRICTS } from '../../lib/store';
@@ -60,6 +61,7 @@ export const TopNavbar: React.FC<Props> = ({
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-200 shadow-xs">
+      <EmergencyAlertBanner />
       {/* Demo Mode Banner */}
       <div className="bg-gradient-to-r from-[#1261A0] via-[#2E9B5B] to-[#F28C28] text-white text-[11px] font-semibold py-1 px-4 text-center flex items-center justify-center gap-2">
         <Sparkles className="w-3.5 h-3.5 animate-spin text-amber-200" />

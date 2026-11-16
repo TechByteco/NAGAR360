@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Complaint } from '../../lib/types';
-import { Layers, Maximize2, Minimize2, Navigation, Flame, MapPin, PlusCircle, AlertTriangle } from 'lucide-react';
+import { Complaint, FloodRiskZone } from '../../lib/types';
+import { FLOOD_RISK_ZONES } from '../../lib/store';
+import { Layers, Maximize2, Minimize2, Navigation, Flame, MapPin, PlusCircle, AlertTriangle, Waves, Download } from 'lucide-react';
 
 interface Props {
   complaints: Complaint[];
@@ -25,6 +26,7 @@ export const MapView: React.FC<Props> = ({
   const [L, setL] = useState<any>(null);
   const [tileMode, setTileMode] = useState<'standard' | 'dark' | 'satellite'>('standard');
   const [viewMode, setViewMode] = useState<'pins' | 'hotspots'>('pins');
+  const [showFloodZones, setShowFloodZones] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
@@ -33,6 +35,7 @@ export const MapView: React.FC<Props> = ({
   const tileLayerRef = useRef<any>(null);
   const markersLayerRef = useRef<any>(null);
   const hotspotsLayerRef = useRef<any>(null);
+  const floodZonesLayerRef = useRef<any>(null);
   const tempMarkerRef = useRef<any>(null);
 
   useEffect(() => {
@@ -65,6 +68,7 @@ export const MapView: React.FC<Props> = ({
     mapInstanceRef.current = map;
     markersLayerRef.current = L.layerGroup().addTo(map);
     hotspotsLayerRef.current = L.layerGroup().addTo(map);
+    floodZonesLayerRef.current = L.layerGroup().addTo(map);
 
     // Map click to place report pin
     map.on('click', (e: any) => {
@@ -325,6 +329,68 @@ export const MapView: React.FC<Props> = ({
     }
   }, [complaints, viewMode, selectedId, L]);
 
+  // Flood Risk Zones Layer
+  useEffect(() => {
+    if (!floodZonesLayerRef.current || !L) return;
+    const floodLayer = floodZonesLayerRef.current;
+    floodLayer.clearLayers();
+
+    if (showFloodZones) {
+      FLOOD_RISK_ZONES.forEach((zone) => {
+        const color = zone.riskLevel === 'critical' ? '#dc2626' : zone.riskLevel === 'high' ? '#ea580c' : '#d97706';
+        const circle = L.circle([zone.latitude, zone.longitude], {
+          color,
+          fillColor: color,
+          fillOpacity: 0.28,
+          weight: 2,
+          dashArray: '6, 6',
+          radius: zone.radiusMeters,
+        }).addTo(floodLayer);
+
+        circle.bindTooltip(`
+          <div style="font-family: system-ui, sans-serif; font-size: 11px; padding: 6px; max-width: 220px;">
+            <div style="font-size: 12px; font-weight: 800; color: ${color};">🌊 ${zone.name}</div>
+            <div style="font-weight: 700; color: #334155; margin-top: 2px;">Risk: ${zone.riskLevel.toUpperCase()}</div>
+            <div style="color: #64748b; font-size: 10px; margin-top: 4px;">${zone.monsoonVulnerabilityNotes}</div>
+          </div>
+        `, { sticky: true });
+      });
+    }
+  }, [showFloodZones, L]);
+
+  // Export complaints as GeoJSON
+  const handleExportGeoJSON = () => {
+    const geojson = {
+      type: 'FeatureCollection',
+      features: complaints.map((c) => ({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [c.longitude, c.latitude],
+        },
+        properties: {
+          ticketId: c.ticketId,
+          title: c.title,
+          category: c.category,
+          severity: c.severity,
+          status: c.status,
+          ward: c.ward,
+          locality: c.locality,
+          city: c.city,
+          createdAt: c.createdAt,
+        },
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nagar360-civic-data-${new Date().toISOString().split('T')[0]}.geojson`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // GPS Locate Current Position
   const handleLocateMe = () => {
     if (!navigator.geolocation || !mapInstanceRef.current || !L) return;
@@ -412,6 +478,30 @@ export const MapView: React.FC<Props> = ({
         >
           <Navigation className={`w-4 h-4 ${isLocating ? 'animate-spin text-amber-500' : ''}`} />
           <span className="hidden sm:inline">{isLocating ? 'Locating...' : 'My GPS'}</span>
+        </button>
+
+        {/* Flood Risk Zones Layer Toggle */}
+        <button
+          onClick={() => setShowFloodZones(!showFloodZones)}
+          className={`backdrop-blur-md px-3 py-1.5 rounded-2xl border shadow-md transition-all flex items-center gap-1.5 text-[11px] font-bold ${
+            showFloodZones
+              ? 'bg-rose-600 text-white border-rose-600'
+              : 'bg-white/95 text-slate-700 border-gray-300 hover:bg-gray-50'
+          }`}
+          title="Toggle Flood Risk & Monsoon Vulnerability Zones"
+        >
+          <Waves className="w-3.5 h-3.5 text-blue-400" />
+          <span>Flood Zones</span>
+        </button>
+
+        {/* Export GeoJSON Button */}
+        <button
+          onClick={handleExportGeoJSON}
+          className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-gray-300 shadow-md hover:bg-gray-50 text-slate-700 transition-colors flex items-center gap-1 text-[11px] font-bold"
+          title="Export Mapped Data as GeoJSON"
+        >
+          <Download className="w-3.5 h-3.5 text-emerald-600" />
+          <span className="hidden md:inline">Export GIS</span>
         </button>
       </div>
 
